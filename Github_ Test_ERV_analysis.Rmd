@@ -1,0 +1,132 @@
+---
+title: "ERV analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(gplots)
+library(pheatmap)
+library(stringr)
+library(viridis)
+library(broom)
+library("plot3D")
+library(scatterplot3d)
+library(plotly)
+
+filter=dplyr::filter
+```
+
+
+##As done by Jozef
+##Import data
+```{r}
+
+#import dataset minus 14th column which contains nothing
+read_tsv('../../YB5 RNA-Seq/siSF3B1 9 days/ERVs/all_control_repeats_norm.txt') %>% select(1:4,8:10,5:7,11:13,-14) %>% rename(siControl_1="siC1_S1",siControl_2="siC2_S2",siControl_3="siC3_S3",siSF3B1_1="siSF1_S4",siSF3B1_2="siSF2_S5",siSF3B1_3="siSF3_S6",DAC_1="siCdac1_S7",DAC_2="siCdac2_S8",DAC_3="siCdac3_S9",siSF3B1_DAC_1="siSFdac1_S10",siSF3B1_DAC_2="siSFdac2_S11",siSF3B1_DAC_3="siSFdac3_S12")->repeats
+
+annotation = read_tsv('../../YB5 RNA-Seq/siSF3B1 9 days/ERVs/all_repeats_List.txt',col_names=c('repeat','family','species'))
+
+#Filter out repeats with zero expression across all samples
+repeats %>% 
+  gather(sample, number, 2:13) %>% 
+  group_by(`repeat`)  %>%
+  filter(sum(number) > 5) %>% 
+  ungroup() %>%
+  spread(sample, number)%>% select(1,5:7,8:10,2:4,11:13,-14) -> repeats2
+
+#add 1 to zeros then log transform values
+repeads_log = repeats2 %>% 
+  column_to_rownames('repeat') %>% 
+  '+'(.,1) %>% 
+  log2 
+```
+##All repeats heatmaps
+
+```{r}
+#cluster and heatmap 1 
+map<- pheatmap(as.matrix(repeads_log), cluster_cols = T, cluster_rows = T, 
+               color = viridis(100), 
+              clustering_method = "ward.D2",
+               clustering_distance_columns = "correlation",
+               show_rownames=F, angle_col = "45", fontsize = 12
+               #clustering_distance_rows = "correlation"
+               )
+
+#cluster and heatmap 1 (Zscore normalized)
+map<- pheatmap(as.matrix(repeads_log), cluster_cols = T, cluster_rows = T, 
+               color = viridis(100), 
+              clustering_method = "ward.D2",
+               clustering_distance_columns = "correlation",
+               show_rownames=F, angle_col = "45", fontsize = 12, scale = "row"
+               #clustering_distance_rows = "correlation"
+               )
+
+#cluster and heatmap 1 on non log data (Zscore normalized)
+repeats2 %>% 
+  column_to_rownames('repeat') -> repeatheatmap
+  
+pheatmap(as.matrix(repeatheatmap), cluster_cols = T, cluster_rows = T, 
+               color = viridis(100), 
+              clustering_method = "ward.D2",
+               clustering_distance_columns = "correlation",
+               show_rownames=F, angle_col = "45", fontsize = 12, scale = "row"
+               #clustering_distance_rows = "correlation"
+               )
+  
+  
+  
+
+
+#cluster and heatmap 2 (using new code from Jozef)
+my.hc <- hclust(as.dist(1-cor(repeads_log, method="pearson")), method="complete")
+my.hr <- hclust(as.dist(1-cor(t(repeads_log), method="pearson")), method="complete")
+
+options(repr.plot.height=7, repr.plot.width=5)
+
+pheatmap(as.matrix(repeads_log), cluster_cols = my.hc, cluster_rows = my.hr, 
+               color = colorRampPalette(c("seagreen", "grey95", "firebrick3"))(50), 
+               #clustering_method = "ward.D2",
+               show_rownames=F)
+
+```
+
+##All repeats boxplots
+```{r}
+
+#boxpot of log transformed data
+repeads_log %>% summarise_all(mean) %>% 
+  gather() %>% 
+  mutate(group=c(rep('siControl',3),rep('siSF3B1',3),rep('DAC',3),rep('siSF3B1 + DAC',3))) %>%
+  ggplot(aes(factor(.$group, levels = c("siControl","siSF3B1","DAC","siSF3B1 + DAC")),value, fill = factor(.$group, levels =  c("siControl","siSF3B1","DAC","siSF3B1 + DAC")))) + geom_boxplot() +   scale_fill_viridis_d()+
+  geom_point() +theme_classic() + labs(x="", y="Log2(Normalized Read Counts)",legend = "group" ,title = "Log2 transformed")  + theme_classic() + theme(legend.position = "none", text = element_text(size=20))
+
+##boxplot/violin log non mean
+repeads_log %>% 
+  gather() %>% 
+  mutate(group=c(rep('siControl',1857),rep('siSF3B1',1857),rep('DAC',1857),rep('siSF3B1 + DAC',1857))) %>%
+  ggplot(aes(factor(.$group, levels = c("siControl","siSF3B1","DAC","siSF3B1 + DAC")),value, fill = factor(.$group, levels =  c("siControl","siSF3B1","DAC","siSF3B1 + DAC"))))  + geom_violin()+ geom_boxplot(fill="white",alpha=0.5,width=0.3) +   scale_fill_viridis_d()+
+  geom_point() +theme_classic() + labs(x="", y="Log2(Normalized Read Counts)",legend = "group" ,title = "Log2 transformed")  + theme_classic() + theme(legend.position = "none", text = element_text(size=18)) +ylim(0,22)
+
+
+#boxpot of non transformed data
+repeats2 %>% as.data.frame() %>% column_to_rownames(var="repeat") %>% summarise_all(mean) %>% 
+  gather() %>% 
+  mutate(group=c(rep('siControl',3),rep('siSF3B1',3),rep('DAC',3),rep('siSF3B1 + DAC',3))) %>%
+  ggplot(aes(factor(.$group, levels = c("siControl","siSF3B1","DAC","siSF3B1 + DAC")),value, fill = factor(.$group, levels =  c("siControl","siSF3B1","DAC","siSF3B1 + DAC")))) + geom_boxplot() +   scale_fill_viridis_d()+
+  geom_point() +theme_classic() + labs(x="", y="Normalized Read Counts",legend = "group" ,title = "Non log transformed")  + theme_classic() + theme(legend.position = "none", text = element_text(size=20))
+
+#boxpot of non transformed non mean
+repeats2 %>% as.data.frame() %>% column_to_rownames(var="repeat")%>% 
+  gather() %>% 
+  mutate(group=c(rep('siControl',1857),rep('siSF3B1',1857),rep('DAC',1857),rep('siSF3B1 + DAC',1857))) %>%
+  ggplot(aes(factor(.$group, levels = c("siControl","siSF3B1","DAC","siSF3B1 + DAC")),value, fill = factor(.$group, levels =  c("siControl","siSF3B1","DAC","siSF3B1 + DAC")))) +
+  #geom_violin() + 
+  geom_boxplot(alpha=0.5,outlier.shape = NA)+  scale_fill_viridis_d()+
+  #geom_point() +
+  theme_classic() + labs(x="", y="Normalized Read Counts",legend = "group" ,title = "Non log transformed")  + theme_classic() + theme(legend.position = "none", text = element_text(size=20)) + ylim(0,10000) #+ coord_cartesian(ylim = c(0,700))
+
+
+```
