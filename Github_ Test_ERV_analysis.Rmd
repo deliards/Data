@@ -3,6 +3,8 @@ title: "ERV analysis"
 output: html_document
 ---
 
+Visual and statistical analysis of endogenous retroviral (ERV) sequences and other repetitive elements from RNA-Seq experiments
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
@@ -12,15 +14,14 @@ library(pheatmap)
 library(stringr)
 library(viridis)
 library(broom)
-library("plot3D")
 library(scatterplot3d)
-library(plotly)
+
 
 filter=dplyr::filter
 ```
 
 
-##As done by Jozef
+
 ##Import data
 ```{r}
 
@@ -43,13 +44,13 @@ repeads_log = repeats2 %>%
   '+'(.,1) %>% 
   log2 
 ```
-##All repeats heatmaps
 
+##All repeats heatmaps
 ```{r}
 #cluster and heatmap 1 
 map<- pheatmap(as.matrix(repeads_log), cluster_cols = T, cluster_rows = T, 
                color = viridis(100), 
-              clustering_method = "ward.D2",
+               clustering_method = "ward.D2",
                clustering_distance_columns = "correlation",
                show_rownames=F, angle_col = "45", fontsize = 12
                #clustering_distance_rows = "correlation"
@@ -58,7 +59,7 @@ map<- pheatmap(as.matrix(repeads_log), cluster_cols = T, cluster_rows = T,
 #cluster and heatmap 1 (Zscore normalized)
 map<- pheatmap(as.matrix(repeads_log), cluster_cols = T, cluster_rows = T, 
                color = viridis(100), 
-              clustering_method = "ward.D2",
+               clustering_method = "ward.D2",
                clustering_distance_columns = "correlation",
                show_rownames=F, angle_col = "45", fontsize = 12, scale = "row"
                #clustering_distance_rows = "correlation"
@@ -77,8 +78,6 @@ pheatmap(as.matrix(repeatheatmap), cluster_cols = T, cluster_rows = T,
                )
   
   
-  
-
 
 #cluster and heatmap 2 (using new code from Jozef)
 my.hc <- hclust(as.dist(1-cor(repeads_log, method="pearson")), method="complete")
@@ -127,6 +126,69 @@ repeats2 %>% as.data.frame() %>% column_to_rownames(var="repeat")%>%
   geom_boxplot(alpha=0.5,outlier.shape = NA)+  scale_fill_viridis_d()+
   #geom_point() +
   theme_classic() + labs(x="", y="Normalized Read Counts",legend = "group" ,title = "Non log transformed")  + theme_classic() + theme(legend.position = "none", text = element_text(size=20)) + ylim(0,10000) #+ coord_cartesian(ylim = c(0,700))
+```
+
+##All repeats PCA
+```{r}
+#PCA of non log data (scaled)
+preppca2 %>% select(-rowname, -group) %>%
+  prcomp(scale = T) %>% 
+  augment(preppca2)%>% 
+  ggplot(aes(.fittedPC1, .fittedPC2,color = factor(.$group,levels =   c("siControl","siSF3B1","DAC","siSF3B1 + DAC"))))  + geom_point(size=6)+
+  labs(x = 'PC1', y = 'PC2', title = "Non Log2 transformed scaled",color="Treatment") +
+  theme_classic() +
+  theme(axis.title = element_text(size = 18), legend.title = element_text(size = 18), axis.text = element_text(size=14),legend.text = element_text(size = 14)) + scale_color_viridis_d(alpha = 0.8) #scale_color_manual(values = c("purple","blue","darkgreen","#CCCC00"))
+
+#ggplot2::ggsave("YB5_siSF3B1_DAC_9days_all_repeats_PCA.pdf")
+
+#3D pca non log scaled
+preppca2 %>%
+  select(-rowname, -group) %>%
+  prcomp(scale = T) %>% 
+  augment(preppca2) %>% mutate(color=case_when(group=="siControl"~ "purple",
+                                    group=="siSF3B1"~ "blue",
+                                    group=="DAC"~ "darkgreen",
+                                    group=="siSF3B1 + DAC"~ "#CCCC00" )) ->prepca3d
+  
+  
+with(prepca3d, {
+    s3d <- scatterplot3d(.fittedPC1, .fittedPC3, .fittedPC2,        # x y and z axis
+                  color=color, pch=19,
+                  cex.symbols= 3, # circle color indicates no. of cylinders
+                  type="h", lty.hplot=2,       # lines to the horizontal plane
+                  scale.y=.75,                 # scale y axis (reduce by 25%)
+                  main="All Repeats",
+                  xlab="PC1",
+                  ylab="PC3",
+                  zlab="PC2",box = F,angle=50)
+legend("topright", inset=c(-.01,-0.02),      # location and inset
+    bty="n", cex=1,              # suppress legend box, shrink text 50%
+    title="Treatment",
+    c("siControl", "siSF3B1", "DAC","siSF3B1+DAC"), fill=c("purple", "blue", "darkgreen","#CCCC00"))
+})
+```
 
 
+#All repeats ttests and anova
+```{r}
+repeats2 %>% rowwise() %>% mutate(meansic=mean(c(siControl_1,siControl_2,siControl_3)),
+                                  meansisf=mean(c(siSF3B1_1,siSF3B1_2,siSF3B1_3)), 
+                                  meandac=mean(c(DAC_1,DAC_2,DAC_3)),
+                                  meansfdac=mean(c(siSF3B1_DAC_1,siSF3B1_DAC_2,siSF3B1_DAC_3)),
+                                  diffsisf_sic=(meansisf-meansic),
+                                  diffdac_sic=(meandac-meansic),
+                                  diffsfdac_sic=(meansfdac-meansic))->repeatsttest
+
+t.test(repeatsttest$meansic,repeatsttest$meansisf) #p-value = 0.6658
+t.test(repeatsttest$meansic,repeatsttest$meandac) #p-value = 0.5639
+t.test(repeatsttest$meansic,repeatsttest$meansfdac) #p-value = 0.5686
+
+t.test(repeatsttest$meansic,repeatsttest$meansisf,paired = T) #p-value = 0.0001066
+t.test(repeatsttest$meansic,repeatsttest$meandac,paired = T) #p-value = 8.775e-07
+t.test(repeatsttest$meansic,repeatsttest$meansfdac,paired = T) #p-value = 0.0009489
+t.test(repeatsttest$meandac,repeatsttest$meansfdac,paired = T) #p-value = 0.8836
+
+repeatsttest %>% gather(treatment,means,14:17) %>% aov(value ~ treatment,data=.)  %>% TukeyHSD() %>% tidy() #no significant differences
+
+repeatsttest %>% gather(treatment,delta_mean,18:20)%>% ggplot(aes(delta_mean,fill=treatment)) + geom_density(alpha=0.5, position = 'identity') + coord_cartesian(xlim = c(-1000,1000)) + geom_vline(xintercept = 0)
 ```
