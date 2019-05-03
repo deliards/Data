@@ -1,0 +1,357 @@
+---
+title: "YB5 RRBS"
+output: html_document
+---
+
+Analysis of DNA methylation differences between treatment using Reduced Representative Bisulfite Sequencing (RRBS)
+
+```{r setup, include=FALSE}
+# configure knit settings
+knitr::opts_chunk$set(echo = TRUE)
+
+
+library(methylKit)
+library(genomation)
+library(GenomicRanges)
+library(tidyverse)
+library(beanplot)
+
+unite=methylKit::unite
+select=dplyr::select
+```
+
+
+## List and read files in folder
+```{r file list}
+
+file.list = list("siC1.txt", "siC2.txt","siC3.txt","siSF1.txt", "siSF2.txt","siSF3.txt","siCdac1.txt", "siCdac2.txt", "siCdac3.txt", "siSFdac1.txt", "siSFdac2.txt", "siSFdac3.txt")
+
+
+myobj = methRead(file.list,sample.id = list("siC1","siC2","siC3","siSF1","siSF2","siSF3","siCdac1", "siCdac2", "siCdac3", "siSFdac1", "siSFdac2", "siSFdac3"), assembly = "hg19", treatment = c(0, 0, 0, 1,1,1,2,2,2,3,3,3), context = "CpG")
+
+```
+
+## Stats
+
+```{r stats plot false}
+getMethylationStats(myobj[[2]], plot = F, both.strands = F)
+
+```
+
+```{r stats plot true}
+getMethylationStats(myobj[[2]], plot = T, both.strands = F)
+```
+
+```{r coverage}
+getCoverageStats(myobj[[2]], plot = T, both.strands = F)
+```
+
+
+## Filter by coverage
+```{r filter reads}
+
+### 10 reads further filtered
+
+myobj10 = filterByCoverage(myobj, lo.count = 10,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+
+### 20 reads
+
+myobj20 = filterByCoverage(myobj, lo.count = 20,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+
+### 100 reads
+
+myobj100 = filterByCoverage(myobj, lo.count = 100,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+```
+
+
+## Merge samples to one object
+```{r merge files}
+unite=methylKit::unite
+
+# 10 reads
+meth = unite(myobj, destrand = FALSE)
+str(meth)
+
+head(meth)
+
+# 10 reads further filtered 
+meth10 = unite(myobj10, destrand = FALSE)
+
+# 20 reads
+meth20 = unite(myobj20, destrand = FALSE)
+
+# 100 reads
+meth100 = unite(myobj100, destrand = FALSE)
+
+head(meth, 2)
+
+```
+
+## Correlation plots
+```{r cor plot}
+getCorrelation(meth,plot=TRUE)
+```
+
+## Dendrogram
+```{r dendrogram}
+clusterSamples(meth, dist="correlation", method="ward", plot=TRUE)
+```
+
+## PCA plot
+```{r PCA screeplot}
+PCASamples(meth, screeplot=TRUE)
+```
+
+```{r PcA}
+PCASamples(meth)
+```
+
+##Methylation Values
+```{r}
+p=as.tibble(percMethylation(meth))
+
+colnames(p)=c("perc.meth.siC1","perc.meth.siC2","perc.meth.siC3","perc.meth.siSF1","perc.meth.siSF2","perc.meth.siSF3","perc.meth.siCDAC1","perc.meth.siCDAC2","perc.meth.siCDAC3","perc.meth.siSFDAC1","perc.meth.siSFDAC2","perc.meth.siSFDAC3")
+
+##get average methylation for each sample
+p %>% rowwise() %>% 
+  mutate(meansic=mean(c(perc.meth.siC1,perc.meth.siC2,perc.meth.siC3))) %>%    
+  mutate(meansisf=mean(c(perc.meth.siSF1,perc.meth.siSF2,perc.meth.siSF3))) %>% 
+  mutate(meansicdac=mean(c(perc.meth.siCDAC1,perc.meth.siCDAC2,perc.meth.siCDAC3))) %>%
+  mutate(meansisfdac=mean(c(perc.meth.siSFDAC1,perc.meth.siSFDAC2,perc.meth.siSFDAC3))) ->p
+ 
+
+##For 20+ reads
+p20=as.tibble(percMethylation(meth20))
+
+colnames(p20)=c("perc.meth.siC1","perc.meth.siC2","perc.meth.siC3","perc.meth.siSF1","perc.meth.siSF2","perc.meth.siSF3","perc.meth.siCDAC1","perc.meth.siCDAC2","perc.meth.siCDAC3","perc.meth.siSFDAC1","perc.meth.siSFDAC2","perc.meth.siSFDAC3")
+
+#get average methylation for each sample
+p20 %>% rowwise() %>% 
+  mutate(meansic=mean(c(perc.meth.siC1,perc.meth.siC2,perc.meth.siC3))) %>%    
+  mutate(meansisf=mean(c(perc.meth.siSF1,perc.meth.siSF2,perc.meth.siSF3))) %>% 
+  mutate(meansicdac=mean(c(perc.meth.siCDAC1,perc.meth.siCDAC2,perc.meth.siCDAC3))) %>%
+  mutate(meansisfdac=mean(c(perc.meth.siSFDAC1,perc.meth.siSFDAC2,perc.meth.siSFDAC3))) ->p20
+
+```
+
+## Annotating bases or regions
+```{r}
+
+##read the gene and CpG BED files downloaded from UCSC genome table browser
+
+gene.obj=readTranscriptFeatures("subset.refseq.hg19.bed.txt")
+
+cpg.obj=readFeatureFlank(("cpgi.hg19.bed.txt"),feature.flank.name=c("CpGi","shores"))
+
+annot=annotateWithGeneParts(as(meth,"GRanges"),gene.obj)
+
+cpg=annotateWithFeatureFlank(as(meth,"GRanges"), cpg.obj$CpGi,cpg.obj$shores, feature.name="CpGi",flank.name="shores")
+
+x=getMembers(annot)
+
+c=getMembers(cpg)
+
+tss=getAssociationWithTSS(annot)
+
+##combine annotation columns
+
+final.annot=cbind(meth,p,tss,x,c)
+
+#write.table(final.annot,file="YB5_siSF3B1DAC__rrbs_siSF_vs_siC_annotated_min20.txt",sep="\t",col.names = T, row.names=F)
+```
+
+
+## Differential methylation analysis between two groups and make tables with annotations
+
+### siSF3B1-siControl (min coverage=20)
+```{r diff methyl}
+
+file.listsf = list("siC1.txt", "siC2.txt","siC3.txt",
+"siSF1.txt", "siSF2.txt","siSF3.txt")
+
+myobjsf = read(file.listsf, sample.id = list("siC1", "siC2","siC3",
+"siSF1", "siSF2","siSF3"), assembly = "hg19", treatment = c(0, 0, 0, 1,1,1), context = "CpG")
+
+myobj20sf = filterByCoverage(myobjsf, lo.count = 20,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+
+
+meth20sf = unite(myobj20sf, destrand = FALSE)
+
+myDiff20sf=calculateDiffMeth(meth20sf)
+
+#write.table(myDiff20sf,file="YB5_siSF3B1DAC__rrbs_methdiff_sisf_vs_sic_min20.txt",sep="\t",col.names = T, row.names=F)
+
+annot=annotateWithGeneParts(as(myDiff20sf,"GRanges"),gene.obj)
+
+cpg=annotateWithFeatureFlank(as(myDiff20sf,"GRanges"), cpg.obj$CpGi,cpg.obj$shores, feature.name="CpGi",flank.name="shores")
+
+x=getMembers(annot)
+
+c=getMembers(cpg)
+
+tss=getAssociationWithTSS(annot)
+
+##get percent methylation for each sample
+p=percMethylation(meth20sf)
+colnames(p)=c("perc.meth.siC1","perc.meth.siC2","perc.meth.siC3","perc.meth.siSF1","perc.meth.siSF2","perc.meth.siSF3")
+
+myDiff20sfpq=myDiff20sf[,-c(1:4)] %>% mutate(logp=-log10(pvalue)) %>% mutate(logq=-log10(qvalue)) 
+
+final.annot20sf=cbind(meth20sf,p,myDiff20sfpq,tss,x,c)
+
+#write.table(final.annot20sf,file="YB5_siSF3B1DAC__rrbs_siSF_vs_siC_annotated_min20.txt",sep="\t",col.names = T, row.names=F)
+```
+
+
+## Make volcano plots
+
+```{r volcano ex: siSFdac vs siC}
+##pvalue
+with(subset(final.annot20sf),plot(logp ~ meth.diff))
+
+##qvalue
+with(subset(final.annot20sf),plot(logq ~ meth.diff))
+```
+
+
+## Volcano plot with colors
+### pvalue plot
+```{r colors}
+with(subset(final.annot20sf, logp <= 1.30103), 
+     plot(logp ~ meth.diff, pch=1, col="grey", cex=0.4, ylim=c(0,150), xlim=c(-60,60), 
+          ylab="-log10(P)", xlab= "siSF3B1 minus siCtrl %", main = "siSF3B1 effect on YB5"))
+with(subset(final.annot20sf, logp > 1.30103 & (meth.diff > -5 & meth.diff < 5)), points(logp ~ meth.diff, pch=1, col="grey", cex=0.4))
+with(subset(final.annot20sf, logp > 1.30103 & meth.diff <= -5), points(logp ~ meth.diff,  pch=1, col="navy", cex=0.4))
+with(subset(final.annot20sf, logp > 1.30103 & meth.diff >= 5), points(logp  ~ meth.diff,  pch=1, col="chocolate2", cex=0.4))
+
+abline(h=1.30103,lty=3)
+abline(v=0, lty=2)
+abline(v=-5, lty=3)
+abline(v=5, lty=3) 
+
+lup <- sum((final.annot20sf$logp > 1.30103) & (final.annot20sf$meth.diff < -5))
+lup
+tot <- nrow(final.annot20sf)
+tot
+100*lup/tot
+
+text("332159 (73.7%)", x = -50, y = 130)
+
+rup <- sum((final.annot20sf$logp > 1.30103) & (final.annot20sf$meth.diff > 5))
+rup
+tot <- nrow(final.annot20sf)
+tot
+100*rup/tot
+
+text("337 (0.074%)", x = 50, y = 130)
+```
+
+
+## Finding and plotting distribution of methylation for each sample
+
+### caluculate percent methylation per sample
+```{r calculate percent meth}
+##min coverage 10
+meth = unite(myobj, destrand = FALSE)
+
+a=percMethylation(meth)
+
+a=as.data.frame(a)
+
+#write.table(a,file="YB5_siSF3B1DAC__rrbs_meth_dist_no_min.txt",sep="\t",col.names = T, row.names=F)
+```
+
+###visualize by making beanplot
+```{r}
+beanplot(a,what=c(1,1,1,0), main="Methylation Distribution_No min coverage", ylab= "% Methylation", col = list(c("black") ,c("black") ,c("black") ,c("blue") ,c("blue") ,c("blue") ,c("green") ,c("green") ,c("green") ,c("purple") ,c("purple") ,c("purple")))
+
+```
+
+###calculate percent after filter
+```{r 20 reads }
+##minimum of 20 reads
+myobj20 = filterByCoverage(myobj, lo.count = 20,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+
+meth20 = unite(myobj20, destrand = FALSE)
+
+a20=percMethylation(meth20)
+
+a20=as.data.frame(a20)
+
+#write.table(a20,file="YB5_siSF3B1DAC__rrbs_meth_dist_min20.txt",sep="\t",col.names = T, row.names=F)
+
+#visualize by making beanplot
+beanplot(a20,what=c(1,1,1,0), main="Methylation Distribution_Minimum 20 reads", ylab= "% Methylation", col = list(c("black") ,c("black") ,c("black") ,c("blue") ,c("blue") ,c("blue") ,c("green") ,c("green") ,c("green") ,c("purple") ,c("purple") ,c("purple")))
+
+```
+
+```{r 100 reads}
+myobj100 = filterByCoverage(myobj, lo.count = 100,
+lo.perc = NULL, hi.count = NULL, hi.perc = 99.9)
+
+meth100 = unite(myobj100, destrand = FALSE)
+
+a100=percMethylation(meth100)
+
+a100=as.data.frame(a100)
+
+#write.table(a100,file="YB5_siSF3B1DAC__rrbs_meth_dist_min100.txt",sep="\t",col.names = T, row.names=F)
+
+beanplot(a100,what=c(1,1,1,0), main="Methylation Distribution_Minimum 100 reads", ylab= "% Methylation", col = list(c("black") ,c("black") ,c("black") ,c("blue") ,c("blue") ,c("blue") ,c("green") ,c("green") ,c("green") ,c("purple") ,c("purple") ,c("purple")))
+```
+
+##Make bed files for IGV
+```{r BED file construction}
+
+##columns for bed file with color indicator: chrom,chromStart,chromEnd,name,score,strand,thickStart,thickEnd,itemRgb
+
+file.list = list("siC1.txt", "siC2.txt","siC3.txt")
+
+myobjsic = read(file.list, sample.id = list("siC1", "siC2","siC3"), assembly = "hg19", treatment = c(0, 0, 0), context = "CpG")
+
+unite=methylKit::unite
+methsic = unite(myobjsic, destrand = FALSE)
+methsic2=getData(methsic)
+sic=methsic2[,1:3]
+p=percMethylation(methsic)
+name=apply(p,1,mean)
+score=name*10
+name=round(name)
+score=round(score)
+
+
+##make itemRgb column based on methylation level
+rgb=mutate(tibble(score),b=case_when(score %in% c(801:1000)~ "255,0,0", score %in% c(200:800)~"125,0,125",score %in% c(10:199)~ "0,0,255",score %in% c(0:9)~ "0,255,0"))
+
+sic=cbind(sic,name,score,meth2[,4],sic[,2:3],rgb$b)
+colnames(sic)=c("chrom","chromStart","chromEnd","name","score","strand","thickStart","thickEnd","itemRgb")
+head(sic)
+
+##save bed file without heading and remove quotes
+#write.table(sic,file="YB5_siControlavg.bed",sep="\t",col.names = F, row.names=F,quote = F)
+
+```
+
+
+##In Linux, convert bed to bigbed because the file is large
+
+#sort bed files
+sort -k1,1 -k2,2n YB5_siControlavg.bed > YB5_siControlavg_sorted.bed
+
+# import chromsome size file if not already there
+fetchChromSizes hg19 > hg19.chrom.size
+
+bedToBigBed YB5_siControlavg_sorted.bed hg19.chrom.size YB5_siControlavg.bb
+
+
+
+
+
+
+
+
